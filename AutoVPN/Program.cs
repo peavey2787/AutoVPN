@@ -18,25 +18,23 @@ namespace AutoVPN
             VPN vpn = new VPN();
             vpn.Start();
             PreventShutOff pso = new PreventShutOff();
-            pso.Start();
-
+            pso.Start(); 
             _quitEvent.WaitOne(); // Pause and listen
         }
         
         public class PreventShutOff
         {
-            //public static event PowerModeChangedEventHandler PowerModeChanged;
             [DllImport("user32.dll")]
             static extern bool SetForegroundWindow(IntPtr hWnd);
-            System.Timers.Timer timer = new System.Timers.Timer(120000);// Every 2mins(120000) check if bat. low 
+            System.Timers.Timer timer = new System.Timers.Timer(120000); // Every 2mins check if battery is low 
             bool runOnce = true;
-            private int i;
+            private int Fully_Charge;
 
             public PreventShutOff()
             {
                 timer.Elapsed += new System.Timers.ElapsedEventHandler(timer_Elapsed); 
                 SystemEvents.PowerModeChanged += new PowerModeChangedEventHandler(SystemEvents_PowerModeChanged);
-                this.i = 0;
+                Fully_Charge = 0;
             }
             private void SystemEvents_PowerModeChanged(object sender, PowerModeChangedEventArgs e)
             { 
@@ -54,7 +52,7 @@ namespace AutoVPN
                 {
                     runOnce = true;
                     timer.Enabled = true;
-                    this.i = 0;
+                    Fully_Charge = 0;
                 }
             }
             public void Start()
@@ -67,7 +65,7 @@ namespace AutoVPN
                 if (p.PowerLineStatus == PowerLineStatus.Offline)
                 {
                     int batterylife = (int)(p.BatteryLifePercent * 100);
-                    if (batterylife < 18) // 18 Min. bat to pause movie
+                    if (batterylife < 18) // 18 Min. or less left on battery, pause movie
                     {
                         runOnce = true;
                         return true;
@@ -76,17 +74,17 @@ namespace AutoVPN
                 else if (p.PowerLineStatus == PowerLineStatus.Online)
                 {
                     int batterylife = (int)(p.BatteryLifePercent * 100);
-                    if (batterylife == 100 && this.i == 2) // Make sure it is fully charged
+                    if (batterylife == 100 && Fully_Charge == 2) // Skip it twice to ensure it is fully charged
                     {
                         if (PauseMovie()) // If watching a movie pause for 2.5 secs To alert me its ok to unplug
                         {
                             System.Threading.Thread.Sleep(2500);
                             PauseMovie();
                         }
-                        this.i += 1; // Make it run once to ensure it is fully charged
+                        Fully_Charge += 1; 
                     }
-                    else
-                        this.i += 1;
+                    else if (batterylife == 100)
+                        Fully_Charge += 1; 
                 }
                 return false;
             }
@@ -127,7 +125,6 @@ namespace AutoVPN
             }
         }
 
-
         public class VPN
         {
             
@@ -137,18 +134,16 @@ namespace AutoVPN
             public static extern IntPtr SetFocus(HandleRef hWnd);
             [DllImport("user32.dll")]
             static extern bool PostMessage(IntPtr hWnd, UInt32 Msg, int wParam, int lParam);
-           
-             
+                        
             System.Timers.Timer timer = new System.Timers.Timer(30000);
             
             public VPN()
             {
-                //Cause isnetworkavailable wont fire if internet is still on and just drop VPN 
+                // Use this because isnetworkavailable wont fire if internet is still on and just drop VPN 
                 NetworkChange.NetworkAddressChanged += new NetworkAddressChangedEventHandler(AddressChangedCallback); 
                 timer.Elapsed += new System.Timers.ElapsedEventHandler(timer_Elapsed);
-                this.isConnecting = false;
-            } 
-            //Public Methods
+                isConnecting = false;
+            }           
             public void Start()
             {  
                 if (!isConnected())
@@ -172,16 +167,17 @@ namespace AutoVPN
             {
                 if (NetworkInterface.GetIsNetworkAvailable() && !isConnected() && !this.isConnecting)
                 {
-                    this.isConnecting = true;
+                    isConnecting = true;
                     using (RasPhoneBook pb = new RasPhoneBook())
                     {
-                        pb.Open();
+                        pb.Open(); // Using obsolete method, because the suggested method doesn't work
                         RasEntryCollection entries = pb.Entries; 
                         RasDialer rd = new RasDialer();  
-                        rd.EntryName = "US TX";
+                        rd.EntryName = "US TX"; // The name of my specific VPN connection
                         rd.PhoneBookPath = pb.Path;
-                        rd.Credentials = new NetworkCredential("x2934389", "JooWB3teMg");
+                        rd.Credentials = new NetworkCredential("x8302947", "OemUntIewO"); 
                         System.Threading.Thread.Sleep(20000);
+
                         while (!isConnected())
                         {
                             if (!rd.IsBusy) // Still tries connecting if a connection is already in progress. 
@@ -191,27 +187,30 @@ namespace AutoVPN
                                     rd.Dial();
                                     System.Threading.Thread.Sleep(20000); // Increase time if still seeing warning about already connecting
                                                                           // Hacky way of getting around the warning message
+                                                                          // of multiple connection attempts
                                                                           // VPN is potentially unconnected for 20 secs
                                 }
-                                catch (Exception ex)
+                                catch (Exception e)
                                 {
-                                    if (ex.Message.IndexOf("A connection to the remote computer could not be established.") != -1)
-                                    { ;}
-                                    //else
-                                        //CloseWarning();
+                                    // Don't break the program just cause its having trouble connecting
+                                    // If a warning appears try to close it
+                                    CloseWarning();
                                 }
                             }
                         } 
-                        this.isConnecting = false;
+                        isConnecting = false;
                         timer.Enabled = true;
                         
-                        /* Manually add L2TP with preshared key
+                        
+                        /* TODO: Allow the user to enter this information so its more universal
+                        Manually add L2TP with preshared key
+                        
                         string l2tpConName = "US-TX";
                         string ip = "";
-                        string username = "x2934389";
-                        string password = "JooWB3teMg";
+                        string username = "";
+                        string password = "";
                         string sharedKey = "mysafety";
-                        //System.Diagnostics.Process.Start("rasdial.exe", "VPN US-TX x2934389 JooWB3teMg"); No work :( need L2TP
+                        
                         RasEntry entryL2TP = RasEntry.CreateVpnEntry(l2tpConName, ip, RasVpnStrategy.L2tpOnly, RasDevice.GetDeviceByName("(L2TP)", RasDeviceType.Vpn));
 
                         pb.Entries.Add(entryL2TP);
@@ -225,13 +224,12 @@ namespace AutoVPN
                 }
                 else
                     Connect();
-            }
-            
-            // When I try to reconnect while a connection is in progress a warning will appear (VERY annoying)
-            // I've tried to figure out how to bring the window to the front and hit ok/cancel with no luck 100% of the time
-            // Checking if RAS is busy doesn't work
+            }                      
             private void CloseWarning()
             {
+                // When I try to reconnect while a connection is in progress a warning will appear (VERY annoying)
+                // I've tried to figure out how to bring the window to the front and hit ok/cancel with no luck 100% of the time
+                // Checking if RAS is busy doesn't work
                 Process[] proc = new Process[10];
                 proc = Process.GetProcessesByName("rasautou");
                 if (proc.Length > 0)
@@ -246,7 +244,6 @@ namespace AutoVPN
                     SendKeys.SendWait(" ");
                 }
             }
-
             public bool isConnected()
             {
                 foreach (NetworkInterface nic in NetworkInterface.GetAllNetworkInterfaces())
